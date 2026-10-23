@@ -2,9 +2,15 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { withRevitConnection } from "../utils/ConnectionManager.js";
 import { requestSizeError } from "../utils/requestSize.js";
+import {
+  DEFAULT_ELEVATION_SCALE,
+  MAX_VIEWS_PER_CALL as MAX_VIEWS,
+  NON_RECTANGULAR_LIMITATION,
+  TIMEOUT_ADVICE,
+  TRANSPORT_LIMITATIONS,
+} from "../utils/interiorElevations.js";
 
 const COMMAND = "create_elevation_views";
-const MAX_VIEWS = 12;
 
 // Only the shape is checked here. Value rules (finite numbers, non-zero direction, positive
 // sizes, positive ids) are checked per item in Revit, so one bad item does not reject the batch.
@@ -43,9 +49,9 @@ For each item, in its own transaction, the tool places an elevation marker on th
 
 Returns, per item in input order: { index, viewId, finalName, warnings, error? }. A failed item has viewId and finalName null and leaves no view or marker behind; the other items are still created. An unknown viewTypeName or viewTemplateName fails the whole call before anything is created, and the error lists the valid names.
 
-Limits: at most ${MAX_VIEWS} views and 4 KiB per request; split larger sets into several calls. If the call times out, the outcome is unknown (Revit may still create some or all views): do not retry automatically; stop and tell the user. Calling again with the same items creates a fresh set of views named "… (2)".
+Limits: at most ${MAX_VIEWS} views and 4 KiB per request; split larger sets into several calls. ${TIMEOUT_ADVICE} Calling again with the same items creates a fresh set of views named "… (2)".
 
-Known limitations: non-rectangular Rooms (e.g. L-shaped) may give views that look into an inside corner; rarely, a small request can arrive split by the socket; a non-English name can be corrupted in the response if it is split across socket chunks.`,
+Known limitations: ${NON_RECTANGULAR_LIMITATION} ${TRANSPORT_LIMITATIONS}`,
     {
       views: z
         .array(viewSchema)
@@ -66,14 +72,14 @@ Known limitations: non-rectangular Rooms (e.g. L-shaped) may give views that loo
         .min(1)
         .max(24000)
         .optional()
-        .describe("View scale denominator, e.g. 48 for 1/4\" = 1'-0\". Defaults to 48."),
+        .describe(`View scale denominator, e.g. 48 for 1/4" = 1'-0". Defaults to ${DEFAULT_ELEVATION_SCALE}.`),
     },
     async (args) => {
       const params = {
         views: args.views,
         viewTypeName: args.viewTypeName,
         viewTemplateName: args.viewTemplateName,
-        scale: args.scale ?? 48,
+        scale: args.scale ?? DEFAULT_ELEVATION_SCALE,
       };
       const sizeError = requestSizeError(COMMAND, params);
       if (sizeError) {
@@ -91,7 +97,7 @@ Known limitations: non-rectangular Rooms (e.g. L-shaped) may give views that loo
           content: [
             {
               type: "text",
-              text: `create_elevation_views failed: ${error instanceof Error ? error.message : String(error)}`,
+              text: `${COMMAND} failed: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

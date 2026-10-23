@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { withRevitConnection } from "../utils/ConnectionManager.js";
 import { requestSizeError } from "../utils/requestSize.js";
+import { TIMEOUT_ADVICE, TRANSPORT_LIMITATIONS } from "../utils/interiorElevations.js";
 
 const COMMAND = "ensure_floor_plan";
 
@@ -14,7 +15,9 @@ For each level it reuses the first floor plan (not a template) on that level, or
 
 Returns, per level in input order: { levelId, planId, planName, created, error? }. Use planId as hostPlanId in create_elevation_views.
 
-The request must be at most 4 KiB. If the call times out, the outcome is unknown (Revit may still create the plans): do not retry automatically; stop and tell the user.`,
+The request must be at most 4 KiB. ${TIMEOUT_ADVICE}
+
+Known limitations: ${TRANSPORT_LIMITATIONS}`,
     {
       levelIds: z
         .array(z.number().int())
@@ -39,7 +42,7 @@ The request must be at most 4 KiB. If the call times out, the outcome is unknown
           content: [
             {
               type: "text",
-              text: `ensure_floor_plan failed: ${error instanceof Error ? error.message : String(error)}`,
+              text: `${COMMAND} failed: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };

@@ -1,19 +1,15 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { withRevitConnection } from "../utils/ConnectionManager.js";
+import { requestSizeError } from "../utils/requestSize.js";
+import {
+  ELEVATION_SIDES,
+  NON_RECTANGULAR_LIMITATION,
+  TIMEOUT_ADVICE,
+  TRANSPORT_LIMITATIONS,
+} from "../utils/interiorElevations.js";
 
 const COMMAND = "analyze_room_elevations";
-
-// The Revit plugin reads one request per 8 KiB socket read; stay well inside it.
-const MAX_REQUEST_BYTES = 4096;
-
-// SocketClient request ids are Date.now() (13 digits) plus 6 random digits.
-const REQUEST_ID_PLACEHOLDER = "0".repeat(19);
-
-function requestBytes(params: unknown): number {
-  const envelope = { jsonrpc: "2.0", method: COMMAND, params, id: REQUEST_ID_PLACEHOLDER };
-  return Buffer.byteLength(JSON.stringify(envelope), "utf8");
-}
 
 export function registerAnalyzeRoomElevationsTool(server: McpServer) {
   server.tool(
@@ -25,60 +21,42 @@ export function registerAnalyzeRoomElevationsTool(server: McpServer) {
       "create_elevation_views unchanged, or adjust them. All lengths and coordinates are in feet, in internal " +
       "model coordinates. Sides with no usable wall are listed in skippedSides with a reason; Rooms that can't be " +
       "analysed (unplaced, not enclosed, bad id) get an error while the others still succeed. " +
-      "Limitations: Elevation Sides are plan directions (up/right/down/left in model coordinates), not true north. " +
-      "Non-rectangular Rooms (such as L-shaped ones) may give views that look into an inside corner. " +
-      `The serialized request must not exceed ${MAX_REQUEST_BYTES} bytes; split long roomIds lists into several calls.`,
+      "The request must be at most 4 KiB; split long roomIds lists into several calls. " +
+      `${TIMEOUT_ADVICE} ` +
+      "Elevation Sides are plan directions (up/right/down/left in model coordinates), not true north. " +
+      `Known limitations: ${NON_RECTANGULAR_LIMITATION} ${TRANSPORT_LIMITATIONS}`,
     {
       roomIds: z
         .array(z.number().int().positive().max(Number.MAX_SAFE_INTEGER))
         .min(1)
         .describe("Element ids of the Rooms to analyse."),
       sides: z
-        .array(z.enum(["North", "East", "South", "West"]))
+        .array(z.enum(ELEVATION_SIDES))
         .optional()
         .describe("Elevation Sides to analyse. Defaults to all four."),
     },
     async (args) => {
       const params = {
         roomIds: args.roomIds,
-        sides: args.sides ?? ["North", "East", "South", "West"],
+        sides: args.sides ?? [...ELEVATION_SIDES],
       };
-
-      const size = requestBytes(params);
-      if (size > MAX_REQUEST_BYTES) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Request too large (${size} bytes, limit ${MAX_REQUEST_BYTES}). Split roomIds into several smaller calls.`,
-            },
-          ],
-        };
+      const sizeError = requestSizeError(COMMAND, params);
+      if (sizeError) {
+        return { isError: true, content: [{ type: "text", text: sizeError }] };
       }
 
       try {
         const response = await withRevitConnection(async (revitClient) => {
           return await revitClient.sendCommand(COMMAND, params);
         });
-
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-        };
+        return { content: [{ type: "text", text: JSON.stringify(response, null, 2) }] };
       } catch (error) {
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: `Analyse room elevations failed: ${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              text: `${COMMAND} failed: ${error instanceof Error ? error.message : String(error)}`,
             },
           ],
         };
