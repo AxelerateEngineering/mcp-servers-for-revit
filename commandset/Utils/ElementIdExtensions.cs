@@ -27,5 +27,16 @@ namespace RevitMCPCommandSet.Utils
 #else
         public static int GetIntValue(this ElementId id) => id.IntegerValue;
 #endif
+
+        /// <summary>
+        /// Creates an ElementId from a 64-bit id, compatible with all Revit versions.
+        /// Before Revit 2024 the id must fit in an int; otherwise an OverflowException is thrown.
+        /// Named differently from Nice3point's ToElementId(long) to avoid an ambiguous call.
+        /// </summary>
+#if REVIT2024_OR_GREATER
+        public static ElementId ToRevitElementId(this long id) => new ElementId(id);
+#else
+        public static ElementId ToRevitElementId(this long id) => new ElementId(checked((int)id));
+#endif
     }
 }
