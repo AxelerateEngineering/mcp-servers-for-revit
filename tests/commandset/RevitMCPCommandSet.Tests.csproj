@@ -3,9 +3,14 @@
     <OutputType>Exe</OutputType>
     <Configurations>Debug.R25;Debug.R26</Configurations>
     <Configurations>$(Configurations);Release.R25;Release.R26</Configurations>
+    <!-- Matches the command set's TFM so the project reference restores. -->
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="$(RevitVersion).*" />
     <PackageReference Include="Nice3point.TUnit.Revit" Version="$(RevitVersion).*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\commandset\RevitMCPCommandSet.csproj" />
   </ItemGroup>
 </Project>
