@@ -122,6 +122,11 @@
       "commandName": "create_dimensions",
       "description": "Create dimension annotations between elements or points in the current view",
       "assemblyPath": "RevitMCPCommandSet.dll"
+    },
+    {
+      "commandName": "analyze_room_elevations",
+      "description": "Analyse rooms and return the origin, view direction, crop and far clip for each Interior Elevation side",
+      "assemblyPath": "RevitMCPCommandSet.dll"
     }
   ]
 }
