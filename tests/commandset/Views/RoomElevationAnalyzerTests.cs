@@ -11,7 +11,11 @@ namespace RevitMCPCommandSet.Tests.Views;
 
 public class RoomElevationAnalyzerTests : RevitApiTest
 {
-    private const double Tolerance = 1e-6;
+    private const double DirectionTolerance = 1e-6;
+    private const double LengthTolerance = 0.01;
+    // Rectangular room, wall centrelines: 10 ft along X, 14 ft along Y, so a width/depth mix-up shows.
+    private const double RectWidth = 10.0;
+    private const double RectDepth = 14.0;
     private const double RaisedLevelElevation = 12.0;
     private const double RaisedRoomBaseOffset = 1.5;
 
@@ -44,8 +48,9 @@ public class RoomElevationAnalyzerTests : RevitApiTest
 
         _groundLevel = Level.Create(_doc, 0.0);
 
-        // 10 ft x 10 ft (wall centrelines), axis-aligned, centred on (5, 5).
-        _rectangularRoom = CreateRoomInRectangle(_groundLevel, new XYZ(5, 5, 0), 10, 10, 0);
+        // 10 ft x 14 ft (wall centrelines), axis-aligned, centred on (5, 7).
+        _rectangularRoom = CreateRoomInRectangle(_groundLevel, new XYZ(RectWidth / 2, RectDepth / 2, 0),
+            RectWidth, RectDepth, 0);
 
         // Raised level with a room base offset: the floor is at 12 + 1.5 ft.
         _raisedLevel = Level.Create(_doc, RaisedLevelElevation);
@@ -94,29 +99,37 @@ public class RoomElevationAnalyzerTests : RevitApiTest
     }
 
     [Test]
-    public async Task Analyze_RectangularRoom_FarClipReachesPastTheWallByItsThickness()
+    [Arguments("North", RectDepth / 2)]
+    [Arguments("South", RectDepth / 2)]
+    [Arguments("East", RectWidth / 2)]
+    [Arguments("West", RectWidth / 2)]
+    public async Task Analyze_RectangularRoom_FarClipIsDistanceToWallFacePlusWallThickness(
+        string sideName, double distanceToCentreline)
     {
-        var room = AnalyzeSingle(_rectangularRoom);
+        var side = Side(AnalyzeSingle(_rectangularRoom), sideName);
 
-        // Wall centreline is 5 ft from the room centre; the finish face is half a wall closer.
-        // The far clip reaches the finish face plus the full wall thickness.
-        foreach (var side in room.Sides)
-        {
-            await Assert.That(side.FarClip).IsEqualTo(5 + _wallWidth / 2).Within(Tolerance);
-        }
+        // The finish face is half a wall closer than the centreline; the far clip reaches it
+        // and then the full wall thickness beyond.
+        var distanceToFace = distanceToCentreline - _wallWidth / 2;
+        await Assert.That(side.FarClip).IsEqualTo(distanceToFace + _wallWidth).Within(LengthTolerance);
     }
 
     [Test]
-    public async Task Analyze_RectangularRoom_CropCoversTheRoomFromItsCentreAndFloor()
+    [Arguments("North", RectWidth)]
+    [Arguments("South", RectWidth)]
+    [Arguments("East", RectDepth)]
+    [Arguments("West", RectDepth)]
+    public async Task Analyze_RectangularRoom_CropCoversTheRoomFromItsCentreAndFloor(
+        string sideName, double wallLengthAcross)
     {
-        var room = AnalyzeSingle(_rectangularRoom);
-        var north = Side(room, "North");
+        var side = Side(AnalyzeSingle(_rectangularRoom), sideName);
 
-        await Assert.That(north.Origin[0]).IsEqualTo(5).Within(Tolerance);
-        await Assert.That(north.Origin[1]).IsEqualTo(5).Within(Tolerance);
-        await Assert.That(north.Origin[2]).IsEqualTo(0).Within(Tolerance);
-        await Assert.That(north.CropWidth).IsEqualTo(10 - _wallWidth).Within(Tolerance);
-        await Assert.That(north.CropHeight).IsEqualTo(_rectangularRoom.UnboundedHeight).Within(Tolerance);
+        await Assert.That(side.Origin[0]).IsEqualTo(RectWidth / 2).Within(LengthTolerance);
+        await Assert.That(side.Origin[1]).IsEqualTo(RectDepth / 2).Within(LengthTolerance);
+        await Assert.That(side.Origin[2]).IsEqualTo(0).Within(LengthTolerance);
+        // Finish face to finish face across the view.
+        await Assert.That(side.CropWidth).IsEqualTo(wallLengthAcross - _wallWidth).Within(LengthTolerance);
+        await Assert.That(side.CropHeight).IsEqualTo(_rectangularRoom.UnboundedHeight).Within(LengthTolerance);
     }
 
     [Test]
@@ -190,7 +203,7 @@ public class RoomElevationAnalyzerTests : RevitApiTest
         foreach (var side in room.Sides)
         {
             await Assert.That(side.Origin[2])
-                .IsEqualTo(RaisedLevelElevation + RaisedRoomBaseOffset).Within(Tolerance);
+                .IsEqualTo(RaisedLevelElevation + RaisedRoomBaseOffset).Within(LengthTolerance);
         }
     }
 
@@ -224,8 +237,8 @@ public class RoomElevationAnalyzerTests : RevitApiTest
 
     private static async Task AssertDirection(ElevationSideAnalysis side, double dx, double dy)
     {
-        await Assert.That(side.ViewDirection[0]).IsEqualTo(dx).Within(Tolerance);
-        await Assert.That(side.ViewDirection[1]).IsEqualTo(dy).Within(Tolerance);
+        await Assert.That(side.ViewDirection[0]).IsEqualTo(dx).Within(DirectionTolerance);
+        await Assert.That(side.ViewDirection[1]).IsEqualTo(dy).Within(DirectionTolerance);
     }
 
     /// <summary>
