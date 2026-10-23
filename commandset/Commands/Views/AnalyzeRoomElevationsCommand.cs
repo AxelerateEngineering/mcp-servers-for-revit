@@ -11,8 +11,6 @@ namespace RevitMCPCommandSet.Commands.Views
     /// </summary>
     public class AnalyzeRoomElevationsCommand : ExternalEventCommandBase
     {
-        private const int TimeoutMilliseconds = 60000;
-
         private static readonly ElevationSide[] AllSides =
             { ElevationSide.North, ElevationSide.East, ElevationSide.South, ElevationSide.West };
 
@@ -31,42 +29,29 @@ namespace RevitMCPCommandSet.Commands.Views
             var sides = ParseSides(parameters?["sides"]);
 
             _handler.SetParameters(roomIds, sides);
-            if (!RaiseAndWaitForCompletion(TimeoutMilliseconds))
-            {
-                throw new TimeoutException(
-                    $"analyze_room_elevations timed out after {TimeoutMilliseconds / 1000} s; the outcome is unknown");
-            }
-
-            if (_handler.Error != null)
-            {
-                throw new InvalidOperationException(
-                    $"analyze_room_elevations failed: {_handler.Error.Message}", _handler.Error);
-            }
-
+            if (!RaiseAndWaitForCompletion(CommandDeadlines.AnalyzeRoomElevationsMilliseconds))
+                throw CommandDeadlines.Timeout(CommandName, CommandDeadlines.AnalyzeRoomElevationsMilliseconds);
+            if (_handler.ErrorMessage != null)
+                throw new InvalidOperationException(_handler.ErrorMessage);
             return _handler.Result;
         }
 
         private static List<long> ParseRoomIds(JToken token)
         {
             if (!(token is JArray array) || array.Count == 0)
-            {
-                throw new ArgumentException("roomIds is required and must be a non-empty array of integers");
-            }
+                throw new ArgumentException("roomIds must be a non-empty array of integer element ids.");
 
             return array.Select(item =>
             {
                 if (item.Type != JTokenType.Integer)
-                {
-                    throw new ArgumentException($"roomIds must contain integers, got '{item}'");
-                }
-
+                    throw new ArgumentException($"roomIds must contain integers, got '{item}'.");
                 try
                 {
                     return item.Value<long>();
                 }
                 catch (OverflowException)
                 {
-                    throw new ArgumentException($"Room id {item} is out of range");
+                    throw new ArgumentException($"Room id {item} is out of range.");
                 }
             }).ToList();
         }
@@ -74,20 +59,11 @@ namespace RevitMCPCommandSet.Commands.Views
         private static IReadOnlyCollection<ElevationSide> ParseSides(JToken token)
         {
             if (token == null || token.Type == JTokenType.Null)
-            {
                 return AllSides;
-            }
-
             if (!(token is JArray array))
-            {
-                throw new ArgumentException("sides must be an array of \"North\", \"East\", \"South\" or \"West\"");
-            }
-
+                throw new ArgumentException("sides must be an array of \"North\", \"East\", \"South\" or \"West\".");
             if (array.Count == 0)
-            {
                 return AllSides;
-            }
-
             return array.Select(ParseSide).Distinct().ToList();
         }
 
@@ -97,12 +73,10 @@ namespace RevitMCPCommandSet.Commands.Views
             foreach (var side in AllSides)
             {
                 if (string.Equals(side.ToString(), name, StringComparison.OrdinalIgnoreCase))
-                {
                     return side;
-                }
             }
 
-            throw new ArgumentException($"Unknown side '{item}'; use \"North\", \"East\", \"South\" or \"West\"");
+            throw new ArgumentException($"Unknown side '{item}'; use \"North\", \"East\", \"South\" or \"West\".");
         }
     }
 }
