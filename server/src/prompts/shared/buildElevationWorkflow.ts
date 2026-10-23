@@ -1,11 +1,9 @@
 import { z } from "zod";
 import { GetPromptResult } from "@modelcontextprotocol/sdk/types.js";
+import { ELEVATION_SIDES, MAX_VIEWS_PER_CALL } from "../../utils/interiorElevations.js";
 
 /** Rooms above this count need the user's yes before anything changes in the model. */
 const CONFIRM_ROOM_COUNT = 10;
-
-/** create_elevation_views accepts at most this many views per call. */
-const MAX_VIEWS_PER_CALL = 12;
 
 /**
  * Room ids per analyze_room_elevations call. 200 ids of up to 16 digits keep the request
@@ -13,7 +11,8 @@ const MAX_VIEWS_PER_CALL = 12;
  */
 const MAX_ROOM_IDS_PER_CALL = 200;
 
-const ALL_SIDES = "North, East, South, West";
+const ALL_SIDES = ELEVATION_SIDES.join(", ");
+const QUOTED_SIDES = ELEVATION_SIDES.map((side) => JSON.stringify(side)).join(", ");
 
 /** The optional `sides` argument every Interior Elevation prompt takes. */
 export const sidesArgument = z
@@ -31,7 +30,7 @@ export function userMessage(text: string): GetPromptResult {
 function sidesStep(sides?: string): string {
   const request =
     sides && sides.trim()
-      ? `The user asked for these Elevation Sides: ${JSON.stringify(sides.trim())}. Turn this free text into a list of "North", "East", "South" and "West" (the values analyze_room_elevations takes in \`sides\`). If a word is not one of those four directions, ask the user what they meant before going on.`
+      ? `The user asked for these Elevation Sides: ${JSON.stringify(sides.trim())}. Turn this free text into a list of ${QUOTED_SIDES} (the values analyze_room_elevations takes in \`sides\`). If a word is not one of those four directions, ask the user what they meant before going on.`
       : `No sides were given, so use all four: ${ALL_SIDES}.`;
   return `${request} Elevation Sides are plan directions (up, right, down and left on the plan in model coordinates), not true north; say so if the user seems to expect true north.`;
 }

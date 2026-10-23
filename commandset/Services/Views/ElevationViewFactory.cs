@@ -33,25 +33,25 @@ namespace RevitMCPCommandSet.Services.Views
             if (requests == null) throw new ArgumentNullException(nameof(requests));
             options = options ?? new ElevationViewOptions();
 
-            var viewType = ResolveViewType(doc, options.ViewTypeName);
-            var template = ResolveTemplate(doc, options.ViewTemplateName);
-            var control = TemplateControl.Of(template);
-            var names = new ViewNameRegistry(doc);
+            var batch = new Batch(
+                ResolveViewType(doc, options.ViewTypeName),
+                ResolveTemplate(doc, options.ViewTemplateName),
+                options.Scale,
+                new ViewNameRegistry(doc));
 
             var results = new List<ElevationViewResult>(requests.Count);
             for (var i = 0; i < requests.Count; i++)
             {
-                results.Add(CreateOne(doc, i, requests[i], viewType, template, control, options.Scale, names));
+                results.Add(CreateOne(doc, i, requests[i], batch));
             }
             return results;
         }
 
-        private static ElevationViewResult CreateOne(Document doc, int index, ElevationViewRequest request,
-            ViewFamilyType viewType, View template, TemplateControl control, int scale, ViewNameRegistry names)
+        private static ElevationViewResult CreateOne(Document doc, int index, ElevationViewRequest request, Batch batch)
         {
             var result = new ElevationViewResult { Index = index };
 
-            result.Error = Validate(request, scale);
+            result.Error = Validate(request, batch.Scale);
             if (result.Error != null)
                 return result;
 
@@ -63,29 +63,29 @@ namespace RevitMCPCommandSet.Services.Views
 
             var origin = new XYZ(request.Origin[0], request.Origin[1], request.Origin[2]);
             var look = new XYZ(request.ViewDirection[0], request.ViewDirection[1], 0).Normalize();
-            var name = names.Propose(request.Name);
+            var name = batch.Names.Propose(request.Name);
             ViewSection view = null;
 
             result.Error = ElevationFailurePreprocessor.RunTransaction(doc, "Create Interior Elevation", () =>
             {
-                var marker = ElevationMarker.CreateElevationMarker(doc, viewType.Id, origin, scale);
+                var marker = ElevationMarker.CreateElevationMarker(doc, batch.ViewType.Id, origin, batch.Scale);
                 view = marker.CreateElevation(doc, hostPlan.Id, MarkerIndex);
 
-                if (template != null)
-                    view.ViewTemplateId = template.Id;
-                if (!control.Scale)
-                    view.Scale = scale;
+                if (batch.Template != null)
+                    view.ViewTemplateId = batch.Template.Id;
+                if (!batch.Control.Scale)
+                    view.Scale = batch.Scale;
 
                 doc.Regenerate();
                 PointMarker(doc, marker, view, origin, look);
 
-                if (control.FarClip)
-                    result.Warnings.Add(control.SkippedWarning("far clip", "farClip"));
+                if (batch.Control.FarClip)
+                    result.Warnings.Add(batch.Control.SkippedWarning("far clip", "farClip"));
                 else
                     SetFarClip(view, request.FarClip);
 
-                if (control.Crop)
-                    result.Warnings.Add(control.SkippedWarning("crop", "cropWidth and cropHeight"));
+                if (batch.Control.Crop)
+                    result.Warnings.Add(batch.Control.SkippedWarning("crop", "cropWidth and cropHeight"));
                 else
                     SetCrop(doc, view, origin, request.CropWidth, request.CropHeight);
 
@@ -98,7 +98,7 @@ namespace RevitMCPCommandSet.Services.Views
             if (result.Error != null)
                 return result;
 
-            names.Reserve(name);
+            batch.Names.Reserve(name);
             result.ViewId = view.Id.GetValue();
             result.FinalName = view.Name;
             return result;
@@ -273,6 +273,25 @@ namespace RevitMCPCommandSet.Services.Views
 
         private static bool IsPositive(double value) => IsFinite(value) && value > 0;
 
+        /// <summary>Everything that is the same for every view in one call.</summary>
+        private sealed class Batch
+        {
+            public Batch(ViewFamilyType viewType, View template, int scale, ViewNameRegistry names)
+            {
+                ViewType = viewType;
+                Template = template;
+                Control = TemplateControl.Of(template);
+                Scale = scale;
+                Names = names;
+            }
+
+            public ViewFamilyType ViewType { get; }
+            public View Template { get; }
+            public TemplateControl Control { get; }
+            public int Scale { get; }
+            public ViewNameRegistry Names { get; }
+        }
+
         /// <summary>Which of the settings this tool makes are controlled by the chosen view template.</summary>
         private sealed class TemplateControl
         {
@@ -295,7 +314,11 @@ namespace RevitMCPCommandSet.Services.Views
                 return new TemplateControl
                 {
                     _templateName = template.Name,
-                    Crop = Controls(BuiltInParameter.VIEWER_CROP_REGION),
+                    // Every parameter that can switch the crop on or off or set its shape. In Revit 2026 an
+                    // elevation template controls none of them (only far clipping, scale and graphics), so this
+                    // only matters for Revit versions or templates that expose them.
+                    Crop = Controls(BuiltInParameter.VIEWER_CROP_REGION, BuiltInParameter.VIEWER_CROP_REGION_DISABLED,
+                        BuiltInParameter.VIEWER_VOLUME_OF_INTEREST_CROP),
                     FarClip = Controls(BuiltInParameter.VIEWER_BOUND_FAR_CLIPPING, BuiltInParameter.VIEWER_BOUND_OFFSET_FAR),
                     Scale = Controls(BuiltInParameter.VIEW_SCALE, BuiltInParameter.VIEW_SCALE_PULLDOWN_IMPERIAL,
                         BuiltInParameter.VIEW_SCALE_PULLDOWN_METRIC),

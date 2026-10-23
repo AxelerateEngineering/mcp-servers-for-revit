@@ -134,6 +134,9 @@ If using a release ZIP, the command set is pre-installed inside the plugin. For 
 | `tag_all_walls` | Tag all walls in the current view |
 | `tag_all_rooms` | Tag all rooms in the current view |
 | `export_room_data` | Export all room data from the project |
+| `analyze_room_elevations` | Analyse rooms for Interior Elevations (origin, view direction, crop, far clip per side) |
+| `ensure_floor_plan` | Make sure each level has a Host Plan for Interior Elevations |
+| `create_elevation_views` | Create Interior Elevations (1-12 per call) from analysed values |
 | `store_project_data` | Store project metadata in local database |
 | `store_room_data` | Store room metadata in local database |
 | `query_stored_data` | Query stored project and room data |
@@ -185,6 +188,7 @@ dotnet run -c Debug.R26
 | `tests/commandset/DataExtraction/` | Tests for model statistics, room data export, and material quantities |
 | `tests/commandset/ColorSplashTests.cs` | Tests for color override functionality |
 | `tests/commandset/TagRoomsTests.cs` | Tests for room tagging functionality |
+| `tests/commandset/Views/` | Tests for Interior Elevation analysis, Host Plans and elevation view creation |
 
 ### Writing New Tests
 

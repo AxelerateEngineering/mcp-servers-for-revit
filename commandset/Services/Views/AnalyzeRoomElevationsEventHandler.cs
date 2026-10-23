@@ -6,6 +6,8 @@ namespace RevitMCPCommandSet.Services.Views
 {
     /// <summary>
     /// Thin wrapper that runs <see cref="RoomElevationAnalyzer"/> on the Revit thread. Read-only: no transaction.
+    /// The completion signal is reset in SetParameters (before Raise) and only waited on in
+    /// WaitForCompletion, so a fast Execute can never be missed.
     /// </summary>
     public class AnalyzeRoomElevationsEventHandler : IExternalEventHandler, IWaitableExternalEventHandler
     {
@@ -16,36 +18,30 @@ namespace RevitMCPCommandSet.Services.Views
         public RoomElevationAnalysisResult Result { get; private set; }
 
         /// <summary>Set when the analysis as a whole failed; per-room problems go in each room's error.</summary>
-        public Exception Error { get; private set; }
+        public string ErrorMessage { get; private set; }
 
-        /// <summary>
-        /// Stores the request and resets the completion signal. Must be called before the event is raised.
-        /// </summary>
         public void SetParameters(IReadOnlyList<long> roomIds, IReadOnlyCollection<ElevationSide> sides)
         {
             _roomIds = roomIds;
             _sides = sides;
             Result = null;
-            Error = null;
+            ErrorMessage = null;
             _completed.Reset();
         }
 
-        public bool WaitForCompletion(int timeoutMilliseconds)
-        {
-            return _completed.WaitOne(timeoutMilliseconds);
-        }
+        public bool WaitForCompletion(int timeoutMilliseconds) => _completed.WaitOne(timeoutMilliseconds);
 
         public void Execute(UIApplication app)
         {
             try
             {
                 var doc = app.ActiveUIDocument?.Document
-                          ?? throw new InvalidOperationException("No active Revit document");
+                          ?? throw new InvalidOperationException("There is no active Revit document.");
                 Result = RoomElevationAnalyzer.Analyze(doc, _roomIds, _sides);
             }
             catch (Exception ex)
             {
-                Error = ex;
+                ErrorMessage = ex.Message;
             }
             finally
             {
@@ -53,6 +49,6 @@ namespace RevitMCPCommandSet.Services.Views
             }
         }
 
-        public string GetName() => "Analyze Room Elevations";
+        public string GetName() => "Analyze Interior Elevations";
     }
 }
