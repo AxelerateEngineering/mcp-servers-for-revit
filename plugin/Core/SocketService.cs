@@ -22,9 +22,11 @@ namespace revit_mcp_plugin.Core
         private bool _isRunning;
         private int _port = 8080;
         private UIApplication _uiApp;
-        private ICommandRegistry _commandRegistry;
+        private volatile ICommandRegistry _commandRegistry;
         private ILogger _logger;
         private CommandExecutor _commandExecutor;
+        private ConfigurationManager _configManager;
+        private ExternalEvent _reloadCommandsEvent;
 
         public static SocketService Instance
         {
@@ -68,15 +70,9 @@ namespace revit_mcp_plugin.Core
 
 
 
-            // 创建命令执行器
-            // Create CommandExecutor
-            _commandExecutor = new CommandExecutor(_commandRegistry, _logger);
-
-            // 加载配置并注册命令
-            // Load configuration and register commands.
-            ConfigurationManager configManager = new ConfigurationManager(_logger);
-            configManager.LoadConfiguration();
-            
+            // 加载配置
+            // Load configuration.
+            _configManager = new ConfigurationManager(_logger);
 
             //// 从配置中读取服务端口
             //// Read the service port from the configuration.
@@ -88,11 +84,63 @@ namespace revit_mcp_plugin.Core
 
             // 加载命令
             // Load command.
-            CommandManager commandManager = new CommandManager(
-                _commandRegistry, _logger, configManager, _uiApp);
-            commandManager.LoadCommands();
+            ReloadCommands();
+
+            // Commands can only be created in Revit API context, so Settings reloads them through this event.
+            if (_reloadCommandsEvent == null)
+            {
+                _reloadCommandsEvent = ExternalEvent.Create(new ReloadCommandsEventHandler());
+            }
 
             _logger.Info($"Socket service initialized on port {_port}");
+        }
+
+        /// <summary>
+        /// Asks Revit to reload the commands from commandRegistry.json.
+        /// Safe to call from outside Revit API context, e.g. the modeless Settings window.
+        /// </summary>
+        /// <returns>False when the service has never been started, so the next start will read the registry anyway.</returns>
+        public bool RequestCommandReload()
+        {
+            if (_reloadCommandsEvent == null)
+                return false;
+
+            _reloadCommandsEvent.Raise();
+            return true;
+        }
+
+        /// <summary>
+        /// Builds a new registry from commandRegistry.json and swaps it in, so requests never see a half-loaded registry
+        /// and commands disabled in Settings are dropped. Must run in Revit API context.
+        /// </summary>
+        internal void ReloadCommands()
+        {
+            _configManager.LoadConfiguration();
+
+            var registry = new RevitCommandRegistry();
+            CommandManager commandManager = new CommandManager(
+                registry, _logger, _configManager, _uiApp);
+            commandManager.LoadCommands();
+
+            _commandExecutor = new CommandExecutor(registry, _logger);
+            _commandRegistry = registry;
+        }
+
+        private class ReloadCommandsEventHandler : IExternalEventHandler
+        {
+            public void Execute(UIApplication app)
+            {
+                try
+                {
+                    Instance.ReloadCommands();
+                }
+                catch (Exception ex)
+                {
+                    Instance._logger.Error("Failed to reload commands: {0}", ex.Message);
+                }
+            }
+
+            public string GetName() => "Reload MCP commands";
         }
 
         public void Start()
