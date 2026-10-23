@@ -55,7 +55,7 @@ namespace RevitMCPCommandSet.Services.Views
             if (room.LevelId != null && room.LevelId != ElementId.InvalidElementId)
             {
                 analysis.LevelId = room.LevelId.GetValue();
-                analysis.HostPlanId = FindHostPlan(doc, room.LevelId)?.Id.GetValue();
+                analysis.HostPlanId = HostPlanService.FindHostPlan(doc, room.LevelId)?.Id.GetValue();
             }
 
             if (room.Location == null)
@@ -96,24 +96,13 @@ namespace RevitMCPCommandSet.Services.Views
         private static Room FindRoom(Document doc, long roomId, out string error)
         {
             error = null;
-            if (roomId <= 0)
+            if (!RequestIds.IsValid(roomId))
             {
-                error = $"Invalid room id {roomId}: ids must be positive";
+                error = $"Invalid room id {roomId}: ids must be positive safe integers";
                 return null;
             }
 
-            ElementId elementId;
-            try
-            {
-                elementId = roomId.ToRevitElementId();
-            }
-            catch (OverflowException)
-            {
-                error = $"Invalid room id {roomId}: too large for this Revit version";
-                return null;
-            }
-
-            var element = doc.GetElement(elementId);
+            var element = RequestIds.GetElement(doc, roomId);
             if (element == null)
             {
                 error = $"No element with id {roomId}";
@@ -127,17 +116,6 @@ namespace RevitMCPCommandSet.Services.Views
             }
 
             return room;
-        }
-
-        private static View FindHostPlan(Document doc, ElementId levelId)
-        {
-            return new FilteredElementCollector(doc)
-                .OfClass(typeof(ViewPlan))
-                .Cast<ViewPlan>()
-                .FirstOrDefault(v => v.ViewType == ViewType.FloorPlan
-                                     && !v.IsTemplate
-                                     && v.GenLevel != null
-                                     && v.GenLevel.Id == levelId);
         }
 
         private static void AnalyzeSides(
@@ -177,7 +155,7 @@ namespace RevitMCPCommandSet.Services.Views
 
                 analysis.Sides.Add(new ElevationSideAnalysis
                 {
-                    Side = side.ToString(),
+                    Side = side,
                     Origin = new[] { Round(origin.X), Round(origin.Y), Round(origin.Z) },
                     ViewDirection = new[] { Round(direction.X), Round(direction.Y) },
                     CropWidth = Round(2 * halfWidth),
@@ -191,37 +169,45 @@ namespace RevitMCPCommandSet.Services.Views
         private static List<SideFace> CollectSideFaces(Solid solid, XYZ centroid, List<string> warnings)
         {
             var sideFaces = new List<SideFace>();
-            var skipped = new Dictionary<string, int>();
+            var skipped = new Dictionary<SkippedFaceKind, int>();
 
             foreach (Face face in solid.Faces)
             {
-                string skipReason;
-                var sideFace = ToSideFace(face, centroid, out skipReason);
+                var sideFace = ToSideFace(face, centroid, out var skipKind);
                 if (sideFace != null)
                 {
                     sideFaces.Add(sideFace);
                 }
-                else if (skipReason != null)
+                else if (skipKind != null)
                 {
-                    skipped[skipReason] = skipped.TryGetValue(skipReason, out var count) ? count + 1 : 1;
+                    skipped[skipKind.Value] = skipped.TryGetValue(skipKind.Value, out var count) ? count + 1 : 1;
                 }
             }
 
             foreach (var entry in skipped)
             {
-                warnings.Add($"Skipped {entry.Value} " + string.Format(entry.Key, entry.Value == 1 ? "face" : "faces"));
+                warnings.Add(SkippedFacesWarning(entry.Key, entry.Value));
             }
 
             return sideFaces;
         }
 
+        /// <summary>E.g. "Skipped 2 curved faces with no usable chord".</summary>
+        private static string SkippedFacesWarning(SkippedFaceKind kind, int count)
+        {
+            var faces = count == 1 ? "face" : "faces";
+            return kind.Detail == null
+                ? $"Skipped {count} {kind.Adjective} {faces}"
+                : $"Skipped {count} {kind.Adjective} {faces} {kind.Detail}";
+        }
+
         /// <summary>
-        /// Returns the face as a Side Face, or null. A null with a null reason means the face is a
+        /// Returns the face as a Side Face, or null. A null with a null kind means the face is a
         /// horizontal top or bottom face, which is ignored silently.
         /// </summary>
-        private static SideFace ToSideFace(Face face, XYZ centroid, out string skipReason)
+        private static SideFace ToSideFace(Face face, XYZ centroid, out SkippedFaceKind? skipKind)
         {
-            skipReason = null;
+            skipKind = null;
 
             if (face is PlanarFace planar)
             {
@@ -233,7 +219,7 @@ namespace RevitMCPCommandSet.Services.Views
 
                 if (Math.Abs(normal.Z) >= VerticalFaceMaxNormalZ)
                 {
-                    skipReason = "sloped {0}";
+                    skipKind = new SkippedFaceKind("sloped");
                     return null;
                 }
 
@@ -248,13 +234,13 @@ namespace RevitMCPCommandSet.Services.Views
             {
                 if (cylinder.Axis.CrossProduct(XYZ.BasisZ).GetLength() > VerticalAxisTolerance)
                 {
-                    skipReason = "non-vertical curved {0}";
+                    skipKind = new SkippedFaceKind("non-vertical curved");
                     return null;
                 }
 
                 if (!TryGetChord(face, out var start, out var end))
                 {
-                    skipReason = "curved {0} with no usable chord";
+                    skipKind = new SkippedFaceKind("curved", "with no usable chord");
                     return null;
                 }
 
@@ -262,14 +248,14 @@ namespace RevitMCPCommandSet.Services.Views
                 var outward = new XYZ(chordMidpoint.X - centroid.X, chordMidpoint.Y - centroid.Y, 0);
                 if (outward.GetLength() <= VerticalAxisTolerance)
                 {
-                    skipReason = "curved {0} centred on the room";
+                    skipKind = new SkippedFaceKind("curved", "centred on the room");
                     return null;
                 }
 
                 return new SideFace(face, outward.Normalize(), start.DistanceTo(end), FacePoints(face));
             }
 
-            skipReason = "unsupported {0} (" + face.GetType().Name + ")";
+            skipKind = new SkippedFaceKind("unsupported", $"({face.GetType().Name})");
             return null;
         }
 
@@ -372,7 +358,7 @@ namespace RevitMCPCommandSet.Services.Views
 
         private static void Skip(RoomElevationAnalysis analysis, ElevationSide side, string reason)
         {
-            analysis.SkippedSides.Add(new SkippedElevationSide { Side = side.ToString(), Reason = reason });
+            analysis.SkippedSides.Add(new SkippedElevationSide { Side = side, Reason = reason });
         }
 
         private static string SuggestedName(RoomElevationAnalysis analysis, ElevationSide side)
@@ -384,6 +370,23 @@ namespace RevitMCPCommandSet.Services.Views
 
         /// <summary>Rounds away floating-point noise (and negative zero) so the AI sees clean values.</summary>
         private static double Round(double value) => Math.Round(value, OutputDecimals) + 0.0;
+
+        /// <summary>Why a face is not a Side Face; equal kinds are counted together in one warning.</summary>
+        private readonly struct SkippedFaceKind : IEquatable<SkippedFaceKind>
+        {
+            public SkippedFaceKind(string adjective, string detail = null)
+            {
+                Adjective = adjective;
+                Detail = detail;
+            }
+
+            public string Adjective { get; }
+            public string Detail { get; }
+
+            public bool Equals(SkippedFaceKind other) => Adjective == other.Adjective && Detail == other.Detail;
+            public override bool Equals(object obj) => obj is SkippedFaceKind other && Equals(other);
+            public override int GetHashCode() => (Adjective, Detail).GetHashCode();
+        }
 
         private sealed class SideFace
         {

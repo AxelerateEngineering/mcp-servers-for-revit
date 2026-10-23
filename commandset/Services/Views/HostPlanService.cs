@@ -36,7 +36,7 @@ namespace RevitMCPCommandSet.Services.Views
                 return result;
             }
 
-            var existing = FindFloorPlan(doc, level.Id);
+            var existing = FindHostPlan(doc, level.Id);
             if (existing != null)
             {
                 result.PlanId = existing.Id.GetValue();
@@ -75,7 +75,11 @@ namespace RevitMCPCommandSet.Services.Views
             return result;
         }
 
-        private static ViewPlan FindFloorPlan(Document doc, ElementId levelId) =>
+        /// <summary>
+        /// The Host Plan rule: the first floor plan (not a template) on the level, or null when there is none.
+        /// Shared with analyze_room_elevations so its hostPlanId is the plan ensure_floor_plan would reuse.
+        /// </summary>
+        internal static ViewPlan FindHostPlan(Document doc, ElementId levelId) =>
             new FilteredElementCollector(doc)
                 .OfClass(typeof(ViewPlan))
                 .Cast<ViewPlan>()

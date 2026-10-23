@@ -38,7 +38,7 @@ public class InteriorElevationTests : RevitApiTest
     {
         _doc = Application.NewProjectDocument(UnitSystem.Imperial);
 
-        using var tx = new Transaction(_doc, "Setup interior elevation tests");
+        using var tx = new Transaction(_doc, "Setup Interior Elevation tests");
         var options = tx.GetFailureHandlingOptions();
         options.SetFailuresPreprocessor(new DeleteWarnings());
         tx.SetFailureHandlingOptions(options);
@@ -87,11 +87,11 @@ public class InteriorElevationTests : RevitApiTest
     /// <see cref="View.ViewDirection"/>'s sign relates to the direction the view looks in.
     /// </summary>
     [Test]
-    [Arguments("North")]
-    [Arguments("East")]
-    [Arguments("South")]
-    [Arguments("West")]
-    public async Task AnalyzedSide_CreatedView_SeesItsWallButNotTheOppositeWallOrBeyondTheFarClip(string sideName)
+    [Arguments(ElevationSide.North)]
+    [Arguments(ElevationSide.East)]
+    [Arguments(ElevationSide.South)]
+    [Arguments(ElevationSide.West)]
+    public async Task AnalyzedSide_CreatedView_SeesItsWallButNotTheOppositeWallOrBeyondTheFarClip(ElevationSide sideName)
     {
         var (facing, opposite, outer) = Walls(sideName);
 
@@ -105,11 +105,11 @@ public class InteriorElevationTests : RevitApiTest
     }
 
     [Test]
-    [Arguments("North")]
-    [Arguments("East")]
-    [Arguments("South")]
-    [Arguments("West")]
-    public async Task AnalyzedSide_CreatedView_FarClipIsDistanceToWallFacePlusWallThickness(string sideName)
+    [Arguments(ElevationSide.North)]
+    [Arguments(ElevationSide.East)]
+    [Arguments(ElevationSide.South)]
+    [Arguments(ElevationSide.West)]
+    public async Task AnalyzedSide_CreatedView_FarClipIsDistanceToSideFacePlusWallThickness(ElevationSide sideName)
     {
         var facing = Walls(sideName).Facing;
         var side = AnalyzeSide(_room, sideName);
@@ -129,10 +129,10 @@ public class InteriorElevationTests : RevitApiTest
     [Test]
     public async Task RaisedRoomWithBaseOffset_CreatedView_CropBottomIsAtTheRoomFloor()
     {
-        var side = AnalyzeSide(_raisedRoom, "North");
+        var side = AnalyzeSide(_raisedRoom, ElevationSide.North);
         var floor = RaisedLevelElevation + RaisedRoomBaseOffset;
 
-        var result = Create(_raisedRoom, "North");
+        var result = Create(_raisedRoom, ElevationSide.North);
 
         await Assert.That(result.Error).IsNull();
         var view = View(result.ViewId!.Value);
@@ -147,23 +147,23 @@ public class InteriorElevationTests : RevitApiTest
         await Assert.That(side.CropWidth).IsEqualTo(RoomWidth - _north.Width).Within(LengthTolerance);
     }
 
-    private static (Wall Facing, Wall Opposite, Wall Outer) Walls(string sideName) => sideName switch
+    private static (Wall Facing, Wall Opposite, Wall Outer) Walls(ElevationSide sideName) => sideName switch
     {
-        "North" => (_north, _south, _outerNorth),
-        "East" => (_east, _west, _outerEast),
-        "South" => (_south, _north, _outerSouth),
-        "West" => (_west, _east, _outerWest),
+        ElevationSide.North => (_north, _south, _outerNorth),
+        ElevationSide.East => (_east, _west, _outerEast),
+        ElevationSide.South => (_south, _north, _outerSouth),
+        ElevationSide.West => (_west, _east, _outerWest),
         _ => throw new ArgumentOutOfRangeException(nameof(sideName)),
     };
 
     private static RoomElevationAnalysis Analyze(Room room) =>
         RoomElevationAnalyzer.Analyze(_doc, new[] { room.Id.Value }, AllSides).Rooms.Single();
 
-    private static ElevationSideAnalysis AnalyzeSide(Room room, string sideName) =>
+    private static ElevationSideAnalysis AnalyzeSide(Room room, ElevationSide sideName) =>
         Analyze(room).Sides.Single(s => s.Side == sideName);
 
     /// <summary>Analyzes the room and creates the view for one side, copying the side unchanged.</summary>
-    private static ElevationViewResult Create(Room room, string sideName)
+    private static ElevationViewResult Create(Room room, ElevationSide sideName)
     {
         var analysis = Analyze(room);
         var side = analysis.Sides.Single(s => s.Side == sideName);

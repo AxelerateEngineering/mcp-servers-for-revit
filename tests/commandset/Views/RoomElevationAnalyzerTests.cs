@@ -1,5 +1,7 @@
-﻿using Autodesk.Revit.DB;
+﻿using System.Diagnostics;
+using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
+using Newtonsoft.Json.Linq;
 using Nice3point.TUnit.Revit;
 using Nice3point.TUnit.Revit.Executors;
 using RevitMCPCommandSet.Models.Views;
@@ -39,7 +41,7 @@ public class RoomElevationAnalyzerTests : RevitApiTest
     {
         _doc = Application.NewProjectDocument(UnitSystem.Imperial);
 
-        using var tx = new Transaction(_doc, "Setup room elevation analysis tests");
+        using var tx = new Transaction(_doc, "Setup Interior Elevation analysis tests");
         var failures = new CollectingFailuresPreprocessor();
         var options = tx.GetFailureHandlingOptions();
         options.SetFailuresPreprocessor(failures);
@@ -91,20 +93,20 @@ public class RoomElevationAnalyzerTests : RevitApiTest
 
         await Assert.That(room.Error).IsNull();
         await Assert.That(room.Sides.Select(s => s.Side))
-            .IsEquivalentTo(new[] { "North", "East", "South", "West" });
-        await AssertDirection(Side(room, "North"), 0, 1);
-        await AssertDirection(Side(room, "East"), 1, 0);
-        await AssertDirection(Side(room, "South"), 0, -1);
-        await AssertDirection(Side(room, "West"), -1, 0);
+            .IsEquivalentTo(AllSides);
+        await AssertDirection(Side(room, ElevationSide.North), 0, 1);
+        await AssertDirection(Side(room, ElevationSide.East), 1, 0);
+        await AssertDirection(Side(room, ElevationSide.South), 0, -1);
+        await AssertDirection(Side(room, ElevationSide.West), -1, 0);
     }
 
     [Test]
-    [Arguments("North", RectDepth / 2)]
-    [Arguments("South", RectDepth / 2)]
-    [Arguments("East", RectWidth / 2)]
-    [Arguments("West", RectWidth / 2)]
-    public async Task Analyze_RectangularRoom_FarClipIsDistanceToWallFacePlusWallThickness(
-        string sideName, double distanceToCentreline)
+    [Arguments(ElevationSide.North, RectDepth / 2)]
+    [Arguments(ElevationSide.South, RectDepth / 2)]
+    [Arguments(ElevationSide.East, RectWidth / 2)]
+    [Arguments(ElevationSide.West, RectWidth / 2)]
+    public async Task Analyze_RectangularRoom_FarClipIsDistanceToSideFacePlusWallThickness(
+        ElevationSide sideName, double distanceToCentreline)
     {
         var side = Side(AnalyzeSingle(_rectangularRoom), sideName);
 
@@ -115,12 +117,12 @@ public class RoomElevationAnalyzerTests : RevitApiTest
     }
 
     [Test]
-    [Arguments("North", RectWidth)]
-    [Arguments("South", RectWidth)]
-    [Arguments("East", RectDepth)]
-    [Arguments("West", RectDepth)]
+    [Arguments(ElevationSide.North, RectWidth)]
+    [Arguments(ElevationSide.South, RectWidth)]
+    [Arguments(ElevationSide.East, RectDepth)]
+    [Arguments(ElevationSide.West, RectDepth)]
     public async Task Analyze_RectangularRoom_CropCoversTheRoomFromItsCentreAndFloor(
-        string sideName, double wallLengthAcross)
+        ElevationSide sideName, double wallLengthAcross)
     {
         var side = Side(AnalyzeSingle(_rectangularRoom), sideName);
 
@@ -140,7 +142,7 @@ public class RoomElevationAnalyzerTests : RevitApiTest
         await Assert.That(room.RoomId).IsEqualTo(_rectangularRoom.Id.Value);
         await Assert.That(room.LevelId).IsEqualTo(_groundLevel.Id.Value);
         await Assert.That(room.HostPlanId).IsNull();
-        await Assert.That(Side(room, "East").SuggestedName)
+        await Assert.That(Side(room, ElevationSide.East).SuggestedName)
             .IsEqualTo($"{_rectangularRoom.Number} {room.Name} - East");
     }
 
@@ -149,7 +151,7 @@ public class RoomElevationAnalyzerTests : RevitApiTest
     {
         var room = AnalyzeSingle(_rectangularRoom, new[] { ElevationSide.North, ElevationSide.East });
 
-        await Assert.That(room.Sides.Select(s => s.Side)).IsEquivalentTo(new[] { "North", "East" });
+        await Assert.That(room.Sides.Select(s => s.Side)).IsEquivalentTo(new[] { ElevationSide.North, ElevationSide.East });
         await Assert.That(room.SkippedSides).IsEmpty();
     }
 
@@ -161,10 +163,10 @@ public class RoomElevationAnalyzerTests : RevitApiTest
         var sin = Math.Sin(Math.PI / 6);
 
         await Assert.That(room.Sides).HasCount(4);
-        await AssertDirection(Side(room, "East"), cos, sin);
-        await AssertDirection(Side(room, "North"), -sin, cos);
-        await AssertDirection(Side(room, "West"), -cos, -sin);
-        await AssertDirection(Side(room, "South"), sin, -cos);
+        await AssertDirection(Side(room, ElevationSide.East), cos, sin);
+        await AssertDirection(Side(room, ElevationSide.North), -sin, cos);
+        await AssertDirection(Side(room, ElevationSide.West), -cos, -sin);
+        await AssertDirection(Side(room, ElevationSide.South), sin, -cos);
     }
 
     [Test]
@@ -174,11 +176,11 @@ public class RoomElevationAnalyzerTests : RevitApiTest
         var half = Math.Sqrt(0.5);
 
         await Assert.That(room.Sides.Select(s => s.Side))
-            .IsEquivalentTo(new[] { "North", "East", "South", "West" });
-        await AssertDirection(Side(room, "North"), half, half);
-        await AssertDirection(Side(room, "West"), -half, half);
-        await AssertDirection(Side(room, "South"), -half, -half);
-        await AssertDirection(Side(room, "East"), half, -half);
+            .IsEquivalentTo(AllSides);
+        await AssertDirection(Side(room, ElevationSide.North), half, half);
+        await AssertDirection(Side(room, ElevationSide.West), -half, half);
+        await AssertDirection(Side(room, ElevationSide.South), -half, -half);
+        await AssertDirection(Side(room, ElevationSide.East), half, -half);
     }
 
     [Test]
@@ -187,9 +189,44 @@ public class RoomElevationAnalyzerTests : RevitApiTest
         var room = AnalyzeSingle(_triangularRoom);
 
         await Assert.That(room.Error).IsNull();
-        await Assert.That(room.Sides.Select(s => s.Side)).IsEquivalentTo(new[] { "North", "South", "West" });
-        await Assert.That(room.SkippedSides.Select(s => s.Side)).IsEquivalentTo(new[] { "East" });
+        await Assert.That(room.Sides.Select(s => s.Side)).IsEquivalentTo(new[] { ElevationSide.North, ElevationSide.South, ElevationSide.West });
+        await Assert.That(room.SkippedSides.Select(s => s.Side)).IsEquivalentTo(new[] { ElevationSide.East });
         await Assert.That(room.SkippedSides.Single().Reason).IsNotNull().And.IsNotEmpty();
+    }
+
+    [Test]
+    public async Task Analyze_ResultAsJson_SidesAreWrittenAsTheirNames()
+    {
+        var json = JToken.FromObject(AnalyzeSingle(_triangularRoom));
+
+        await Assert.That(json["sides"]!.Select(s => s["side"]!.Type).Distinct())
+            .IsEquivalentTo(new[] { JTokenType.String });
+        await Assert.That(json["sides"]!.Select(s => (string)s["side"]!))
+            .IsEquivalentTo(new[] { "North", "South", "West" });
+        await Assert.That((string)json["skippedSides"]![0]!["side"]!).IsEqualTo("East");
+    }
+
+    /// <summary>
+    /// Basis for the analyze_room_elevations deadline in CommandDeadlines. Prints the time per Room
+    /// for the five placed fixture Rooms; read it with `--output Detailed`.
+    /// </summary>
+    [Test]
+    public async Task Analyze_FivePlacedRooms_Timing()
+    {
+        var ids = new[] { _rectangularRoom, _raisedRoom, _rotated30Room, _rotated45Room, _triangularRoom }
+            .Select(r => r.Id.Value).ToArray();
+        const int repeats = 20;
+
+        var stopwatch = Stopwatch.StartNew();
+        for (var i = 0; i < repeats; i++)
+        {
+            RoomElevationAnalyzer.Analyze(_doc, ids, AllSides);
+        }
+        stopwatch.Stop();
+
+        var perRoom = stopwatch.Elapsed.TotalMilliseconds / (repeats * ids.Length);
+        Console.WriteLine($"Analysed {repeats} x {ids.Length} rooms in {stopwatch.ElapsedMilliseconds} ms ({perRoom:F1} ms per room)");
+        await Assert.That(RoomElevationAnalyzer.Analyze(_doc, ids, AllSides).Rooms.All(r => r.Error == null)).IsTrue();
     }
 
     [Test]
@@ -232,7 +269,7 @@ public class RoomElevationAnalyzerTests : RevitApiTest
         return result.Rooms.Single();
     }
 
-    private static ElevationSideAnalysis Side(RoomElevationAnalysis room, string side) =>
+    private static ElevationSideAnalysis Side(RoomElevationAnalysis room, ElevationSide side) =>
         room.Sides.Single(s => s.Side == side);
 
     private static async Task AssertDirection(ElevationSideAnalysis side, double dx, double dy)

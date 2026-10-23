@@ -1,11 +1,13 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 
 namespace RevitMCPCommandSet.Models.Views
 {
     /// <summary>
     /// One of four plan directions around a Room: up, right, down and left in model coordinates.
-    /// Not true north.
+    /// Not true north. Written to JSON as its name ("North", "East", "South" or "West").
     /// </summary>
+    [JsonConverter(typeof(StringEnumConverter))]
     public enum ElevationSide
     {
         North,
@@ -65,7 +67,7 @@ namespace RevitMCPCommandSet.Models.Views
     public class ElevationSideAnalysis
     {
         [JsonProperty("side")]
-        public string Side { get; set; }
+        public ElevationSide Side { get; set; }
 
         /// <summary>[x, y, z]: the room's centroid in XY, at the room's floor.</summary>
         [JsonProperty("origin")]
@@ -91,7 +93,7 @@ namespace RevitMCPCommandSet.Models.Views
     public class SkippedElevationSide
     {
         [JsonProperty("side")]
-        public string Side { get; set; }
+        public ElevationSide Side { get; set; }
 
         [JsonProperty("reason")]
         public string Reason { get; set; }
