@@ -16,16 +16,11 @@ namespace RevitMCPCommandSet.Services.Views
             if (doc == null) throw new ArgumentNullException(nameof(doc));
             if (levelIds == null) throw new ArgumentNullException(nameof(levelIds));
 
-            ViewNameRegistry names = null;
-            var results = new List<HostPlanResult>();
-            foreach (var levelId in levelIds)
-            {
-                results.Add(EnsureOne(doc, levelId, ref names));
-            }
-            return results;
+            var names = new ViewNameRegistry(doc);
+            return levelIds.Select(levelId => EnsureOne(doc, levelId, names)).ToList();
         }
 
-        private static HostPlanResult EnsureOne(Document doc, long levelId, ref ViewNameRegistry names)
+        private static HostPlanResult EnsureOne(Document doc, long levelId, ViewNameRegistry names)
         {
             var result = new HostPlanResult { LevelId = levelId };
 
@@ -59,7 +54,6 @@ namespace RevitMCPCommandSet.Services.Views
                 return result;
             }
 
-            names = names ?? new ViewNameRegistry(doc);
             var name = names.Propose(level.Name + HostPlanNameSuffix);
             ViewPlan plan = null;
             var error = ElevationFailurePreprocessor.RunTransaction(doc, "Create Host Plan", () =>
