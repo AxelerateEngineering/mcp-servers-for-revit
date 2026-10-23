@@ -127,6 +127,16 @@
       "commandName": "analyze_room_elevations",
       "description": "Analyse rooms and return the origin, view direction, crop and far clip for each Interior Elevation side",
       "assemblyPath": "RevitMCPCommandSet.dll"
+    },
+    {
+      "commandName": "ensure_floor_plan",
+      "description": "Make sure each level has a Host Plan for Interior Elevations, reusing an existing floor plan or creating one",
+      "assemblyPath": "RevitMCPCommandSet.dll"
+    },
+    {
+      "commandName": "create_elevation_views",
+      "description": "Create Interior Elevations (1-12 per call) from analysed origins, view directions, crops and far clips",
+      "assemblyPath": "RevitMCPCommandSet.dll"
     }
   ]
 }
